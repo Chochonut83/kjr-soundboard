@@ -54,7 +54,8 @@ Browser storage (`kjr-sb-` prefix): `board`, `settings` ({fade, device:{id,name}
 
 ```
 board = {
-  songs: [{id, uri, name, artist, img, dur, start /*ms*/, cats: ["goal"|"penalty"|"skate"|"inter"|"stop"]}],
+  songs: [{id, uri, name, artist, img, dur, start /*ms*/, cats: ["goal"|"penalty"|"skate"|"inter"|"stop"],
+           local?, pl?, idx? /* local files only: playlist id and position */}],
   game: {id, at, played: [songId], queue: [songId], qpos, last: {cat: songId}},
   playlists: [{id, name}],
   updatedAt
