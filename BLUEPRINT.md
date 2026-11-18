@@ -1,6 +1,8 @@
 # KJR Game Day Soundboard — Blueprint
 
-As of November 17, 2026. Status: built and tested, **not live yet**. Waiting on the owner to create the GitHub repo `Chochonut83/kjr-soundboard` and give the Claude GitHub App access (setup guide, step 1).
+As of November 17, 2026. Live version: GitHub commit `8898d9d` ("Add the Spotify Client ID") in `Chochonut83/kjr-soundboard`. The Claude GitHub App has access to the repo. The soundboard rules block is published in Firebase (owner pasted it Nov 17). Spotify Client ID `028414dc172f4768837e9eed2f1caaf2` is in `config.js`.
+
+Open item: `kjr-stat-tracker/firestore.rules` in that repo (and its copy in this project) doesn't have the soundboard block yet. Add it before anyone pastes the Stat Tracker's rules file into Firebase again, or soundboard sync stops working.
 
 ## What it is
 
@@ -81,4 +83,4 @@ Spotify endpoints used (post-February-2026 names): `GET /me`, `GET /me/playlists
 
 | Date | Change |
 |---|---|
-| Nov 17, 2026 | First version built and tested; waiting on the GitHub repo |
+| Nov 17, 2026 | First version built and tested (`1b049fe`); pushed to GitHub with the Spotify Client ID (`8898d9d`); Firebase rules block published |
