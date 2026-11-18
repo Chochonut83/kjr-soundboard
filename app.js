@@ -173,12 +173,16 @@ function chooseDevice(after) {
   });
 }
 
-let fadeRun = null; // {cancel, restore}
-async function stopFade() {
+let fadeRun = null; // {devId, vol, cancelled}
+// Ends a fade early and puts the volume back. Pass pauseFirst when the music is stopping,
+// so the song doesn't jump back to full volume for a moment before it stops.
+async function stopFade(pauseFirst) {
   if (!fadeRun) return;
   const f = fadeRun; fadeRun = null; f.cancelled = true;
+  if (pauseFirst) { try { await pauseNow(f.devId); } catch (e) {} }
   if (f.devId && f.vol != null) { try { await sp("PUT", "/me/player/volume", null, {volume_percent: f.vol, device_id: f.devId}); } catch (e) {} }
 }
+const pauseNow = devId => sp("PUT", "/me/player/pause", null, devId ? {device_id: devId} : settings.device ? {device_id: settings.device.id} : null);
 
 async function playSong(song, src, opts) {
   if (!song) return false;
@@ -208,8 +212,32 @@ async function playSong(song, src, opts) {
   now = {id: song.id, src, at: Date.now(), from: body.position_ms};
   if (src !== "preview") store.set("now", now);
   renderNow();
+  ensureStart(song, now);
   if (song.local) watchLocal(song, now);
   return true;
+}
+
+// Many Spotify devices (phones especially, and any device that was asleep) ignore the start
+// position in the play request and begin at 0:00. So once the song is really playing, the app
+// checks where it is and jumps it to the start time if it began from the top.
+async function ensureStart(song, started) {
+  const want = started.from || 0;
+  if (want < 1500) return;
+  const mine = it => it && (it.uri === song.uri || (!song.local && it.id === song.id));
+  let seeks = 0;
+  for (let n = 0; n < 10; n++) {
+    await sleep(n < 4 ? 350 : 600);
+    if (now !== started) return; // another song or Stop was pressed
+    let st;
+    try { st = await sp("GET", "/me/player/currently-playing"); } catch (e) { continue; }
+    if (now !== started) return;
+    if (!st || !mine(st.item || st.track)) continue; // the song hasn't started on the device yet
+    if ((st.progress_ms || 0) >= want - 2500) return; // it started at the right spot
+    if (seeks >= 2) return;
+    seeks++;
+    try { await sp("PUT", "/me/player/seek", null, {position_ms: want, device_id: settings.device.id}); } catch (e) { return; }
+    await sleep(500);
+  }
 }
 
 // Where a local song sits in its playlist right now. Checks the saved spot first (one quick request),
@@ -255,10 +283,30 @@ function watchLocal(song, started) {
 }
 
 async function stopMusic() {
-  await stopFade();
-  try { await sp("PUT", "/me/player/pause", null, settings.device ? {device_id: settings.device.id} : null); }
-  catch (e) { if (e.status !== 403 && e.status !== 404) toast(spotifyError(e), "err"); }
+  // Hide the Stop button straight away so it feels instant; Spotify gets the pause right after.
   now = null; store.del("now"); renderNow();
+  if (fadeRun) return stopFade(true);
+  try { await pauseNow(); }
+  catch (e) { if (e.status !== 403 && e.status !== 404) toast(spotifyError(e), "err"); }
+}
+
+// While a song is on, checks every few seconds whether Spotify is still playing, so the
+// Now Playing bar and the big Stop button go away when the song ends or is paused in Spotify.
+let nowTimer = null;
+function watchPlayback() {
+  clearTimeout(nowTimer);
+  if (!now || !auth) return;
+  nowTimer = setTimeout(async () => {
+    const started = now;
+    if (!started) return;
+    if (document.visibilityState === "visible" && Date.now() - started.at > 4000 && !fadeRun) {
+      try {
+        const st = await sp("GET", "/me/player/currently-playing");
+        if (now === started && (!st || st.is_playing === false)) { now = null; store.del("now"); renderNow(); return; }
+      } catch (e) {}
+    }
+    if (now) watchPlayback();
+  }, 5000);
 }
 
 async function fadeOut() {
@@ -271,9 +319,13 @@ async function fadeOut() {
   const run = {devId: d.id, vol: d.volume_percent}; fadeRun = run; renderNow();
   const steps = 6, total = Math.max(1, settings.fade || 3) * 1000;
   try {
+    // If Stop (or a new song) interrupts the fade while a volume change is on its way,
+    // put the volume back again so the next song isn't quiet.
+    const restoreIfCancelled = async () => { if (run.cancelled) { try { await sp("PUT", "/me/player/volume", null, {volume_percent: run.vol, device_id: d.id}); } catch (e) {} return true; } return false; };
     for (let i = 1; i <= steps; i++) {
       if (run.cancelled) return;
       await sp("PUT", "/me/player/volume", null, {volume_percent: Math.round(run.vol * (1 - i / steps)), device_id: d.id});
+      if (await restoreIfCancelled()) return;
       await sleep(total / steps);
     }
     if (run.cancelled) return;
@@ -388,11 +440,13 @@ async function importPlaylist(p) {
       items = items.concat((j && j.items) || []);
       if (!j || !j.next) break; q.offset += 50;
     }
-    let added = 0, have = 0, skipped = 0, locals = 0;
+    let added = 0, have = 0, skipped = 0, locals = 0, badLocal = 0;
     items.forEach((it, i) => {
       const t = it && (it.item || it.track);
-      const local = !!(t && (t.is_local || /^spotify:local:/.test(t.uri || "")));
-      if (!t || t.type !== "track" || (!local && !t.id) || (local && !t.uri)) { skipped++; return; }
+      // Spotify marks local files on the playlist entry (is_local) and sometimes on the song too.
+      const local = !!((it && it.is_local) || (t && (t.is_local || /^spotify:local:/.test(t.uri || ""))));
+      if (local && (!t || !t.uri)) { badLocal++; skipped++; return; }
+      if (!t || (!local && (t.type !== "track" || !t.id))) { skipped++; return; }
       const id = local ? t.uri : t.id;
       const old = songById(id);
       // Local files can only be played from their playlist, by position, so remember where they are.
@@ -407,7 +461,7 @@ async function importPlaylist(p) {
     });
     if (!board.playlists.find(x => x.id === p.id)) board.playlists.push({id: p.id, name: p.name});
     songFilter = added ? "unsorted" : songFilter; view = "songs"; changed();
-    toast(`${p.name}: ${added} new song${added === 1 ? "" : "s"}${locals ? ` (${locals} local)` : ""}${have ? `, ${have} already here` : ""}${skipped ? `, ${skipped} skipped (podcasts or missing songs)` : ""}.`, "ok");
+    toast(`${p.name}: ${added} new song${added === 1 ? "" : "s"}${locals ? ` (${locals} local)` : ""}${have ? `, ${have} already here` : ""}${skipped - badLocal ? `, ${skipped - badLocal} skipped (podcasts or missing songs)` : ""}${badLocal ? `. Spotify didn't send the details of ${badLocal} local file${badLocal === 1 ? "" : "s"}, so ${badLocal === 1 ? "it" : "they"} couldn't be added` : ""}.`, badLocal ? "err" : "ok");
   } catch (e) { toast(spotifyError(e), "err"); }
 }
 
@@ -582,7 +636,7 @@ function settingsView() {
       <h4>Back up</h4>
       <div class="row gap"><button class="btn ghost grow" data-act="export">Save a backup file</button><label class="btn ghost grow">Load a backup<input type="file" accept="application/json" id="importFile" hidden></label></div>
     </section>
-    <div class="about"><img src="soundboard-art.jpg" alt="KJR Soundboard" loading="lazy"><p class="tiny muted">KJR Game Day Soundboard · v1.2</p></div>`;
+    <div class="about"><img src="soundboard-art.jpg" alt="KJR Soundboard" loading="lazy"><p class="tiny muted">KJR Game Day Soundboard · v1.3</p></div>`;
 }
 
 function bind(root) {
@@ -646,11 +700,15 @@ async function copy(t) { try { await navigator.clipboard.writeText(t); toast("Co
 function renderNow() {
   const bar = $("#now");
   const s = now && songById(now.id);
+  // The big red Stop button floats over every tab and sheet while a song is on.
+  document.body.classList.toggle("playing", !!s);
+  bigStop().hidden = !s;
+  watchPlayback();
   if (!s) { bar.className = "now idle"; bar.innerHTML = `<span class="muted">Nothing playing</span>${settings.device ? `<button class="devpill" data-act2="device">🔊 ${esc(settings.device.name)}</button>` : auth ? `<button class="devpill warn" data-act2="device">Choose speaker</button>` : ""}`; }
   else {
     bar.className = "now";
     bar.innerHTML = `${art(s)}<div class="grow nowtxt"><b>${esc(s.name)}</b><small>${esc(SRC_LABEL[now.src] || "")} · from ${fmt(now.from)}</small></div>
-      <button class="nbtn" data-act2="fade" ${fadeRun ? "disabled" : ""}>${fadeRun ? "Fading…" : "Fade"}</button><button class="nbtn stopb" data-act2="stop">Stop</button>
+      <button class="nbtn" data-act2="fade" ${fadeRun ? "disabled" : ""}>${fadeRun ? "Fading…" : "Fade"}</button>
       ${["penalty", "inter", "stop", "queue", "skate"].includes(now.src) ? `<button class="nbtn" data-act2="next" title="Play a different song from the same button">Next</button>` : ""}`;
   }
   bar.querySelectorAll("[data-act2]").forEach(b => b.onclick = () => {
@@ -730,6 +788,12 @@ window.__sbDB = db => sync.attach(db);
 
 // ---------- start ----------
 document.querySelectorAll(".tab").forEach(t => t.onclick = () => { view = t.dataset.view; closeSheet(); render(); window.scrollTo(0, 0); });
+function bigStop() {
+  let b = $("#bigStop");
+  if (!b) { b = document.createElement("button"); b.id = "bigStop"; b.className = "big-stop"; b.hidden = true; b.setAttribute("aria-label", "Stop the music"); b.innerHTML = `<span class="sq"></span>STOP`; document.body.appendChild(b); }
+  if (!b.onclick) b.onclick = () => stopMusic();
+  return b;
+}
 const savedNow = store.get("now", null);
 if (savedNow && Date.now() - savedNow.at < 10 * 60000) now = savedNow;
 render();

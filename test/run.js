@@ -9,8 +9,10 @@ function fakeSpotify(log) {
   const tracks = Array.from({length: 55}, (_, i) => ({id: "t" + i, uri: "spotify:track:t" + i, type: "track", name: "Song " + i, artists: [{name: "Band " + i}], duration_ms: 200000, album: {images: [{url: "https://i.scdn.co/x" + i}]}}));
   const LOCAL = "spotify:local:Rink+Band::Rangers+Anthem:3";
   const items = tracks.map(t => ({item: t})).concat([{item: {type: "track", is_local: true, id: null, uri: LOCAL, name: "Rangers Anthem", artists: [{name: "Rink Band"}], duration_ms: 3000, album: {images: []}}}, {item: null}]);
-  const st = {vol: 80, playing: null, progress: 0};
-  return async route => {
+  // ignorePos: act like a phone that ignores the start position and begins at 0:00.
+  const st = {vol: 80, playing: null, base: 0, t0: 0, ignorePos: false, progressOverride: null};
+  const started = pos => { st.base = st.ignorePos ? 0 : (pos || 0); st.t0 = Date.now(); };
+  const handler = async route => {
     const req = route.request(), u = new URL(req.url()), m = req.method(), p = u.pathname;
     const json = (o, s) => route.fulfill({status: s || 200, contentType: "application/json", body: JSON.stringify(o)});
     if (u.host === "accounts.spotify.com" && p === "/authorize") {
@@ -19,28 +21,34 @@ function fakeSpotify(log) {
     }
     if (u.host === "accounts.spotify.com" && p === "/api/token") { log.push({token: req.postData()}); return json({access_token: "AT", refresh_token: "RT", expires_in: 3600}); }
     if (p === "/v1/me") return json({id: "coach", display_name: "Coach K"});
-    if (p === "/v1/me/playlists") return json({items: [{id: "p1", name: "Game Day", owner: {id: "coach"}, items: {total: 56}, images: []}, {id: "p2", name: "Top Hits", owner: {id: "spotify"}, items: {total: 50}, images: []}], next: null});
+    if (p === "/v1/me/playlists") return json({items: [{id: "p1", name: "Game Day", owner: {id: "coach"}, items: {total: 56}, images: []}, {id: "p2", name: "Top Hits", owner: {id: "spotify"}, items: {total: 50}, images: []}, {id: "p3", name: "Local Mix", owner: {id: "coach"}, items: {total: 2}, images: []}], next: null});
+    // Local files marked only on the playlist entry, and one Spotify sent without its details.
+    if (p === "/v1/playlists/p3/items") return json({items: [{is_local: true, item: {type: "track", id: null, uri: "spotify:local:Barn+Band::Puck+Drop:120", name: "Puck Drop", artists: [{name: "Barn Band"}], duration_ms: 120000}}, {is_local: true, item: null}], next: null});
     if (p === "/v1/playlists/p1/items") { const off = +u.searchParams.get("offset"); const page = items.slice(off, off + 50); return json({items: page, next: off + 50 < items.length ? "more" : null}); }
     if (p === "/v1/me/player/devices") return json({devices: [{id: "d1", name: "Rink iPad", type: "Tablet", is_active: false, supports_volume: true}]});
     if (p === "/v1/me/player/play" && m === "PUT") {
       const b = JSON.parse(req.postData());
       if (b.context_uri) { // local file: plays from the playlist, then Spotify moves on to the next song
         const uri = (items[b.offset.position] || {}).item; log.push({play: uri && uri.uri, ctx: b.context_uri, off: b.offset.position, pos: b.position_ms, dev: u.searchParams.get("device_id")});
-        st.playingUri = uri && uri.uri; st.playing = "local"; clearTimeout(st.adv); st.adv = setTimeout(() => { st.playingUri = "spotify:track:t0"; st.playing = "t0"; }, 1200);
-      } else { log.push({play: b.uris[0], pos: b.position_ms, dev: u.searchParams.get("device_id")}); clearTimeout(st.adv); st.playing = b.uris[0].split(":")[2]; st.playingUri = b.uris[0]; }
+        st.playingUri = uri && uri.uri; st.playing = "local"; started(b.position_ms); clearTimeout(st.adv); st.adv = setTimeout(() => { st.playingUri = "spotify:track:t0"; st.playing = "t0"; }, 1200);
+      } else { log.push({play: b.uris[0], pos: b.position_ms, dev: u.searchParams.get("device_id")}); clearTimeout(st.adv); st.playing = b.uris[0].split(":")[2]; st.playingUri = b.uris[0]; started(b.position_ms); }
       return route.fulfill({status: 204});
     }
     if (p === "/v1/me/player/pause") { log.push({pause: true}); st.playing = null; st.playingUri = null; clearTimeout(st.adv); return route.fulfill({status: 204}); }
+    if (p === "/v1/me/player/seek" && m === "PUT") { const v = +u.searchParams.get("position_ms"); log.push({seek: v, dev: u.searchParams.get("device_id")}); st.base = v; st.t0 = Date.now(); return route.fulfill({status: 204}); }
     if (p === "/v1/me/player/volume") { const v = +u.searchParams.get("volume_percent"); log.push({vol: v}); st.vol = v; return route.fulfill({status: 204}); }
     if (p === "/v1/me/player") return json({is_playing: !!st.playing, device: {id: "d1", supports_volume: true, volume_percent: st.vol}});
-    if (p === "/v1/me/player/currently-playing") return json({is_playing: !!st.playing, item: st.playing ? {id: st.playing === "local" ? null : st.playing, uri: st.playingUri} : null, progress_ms: 75400});
+    if (p === "/v1/me/player/currently-playing") return json({is_playing: !!st.playing, item: st.playing ? {id: st.playing === "local" ? null : st.playing, uri: st.playingUri} : null, progress_ms: st.progressOverride != null ? st.progressOverride : st.base + (Date.now() - st.t0)});
     return json({error: {status: 404, message: "not mocked " + p}}, 404);
   };
+  handler.st = st;
+  return handler;
 }
 
 async function phone(browser, log) {
   const ctx = await browser.newContext({viewport: {width: 390, height: 844}, deviceScaleFactor: 2});
-  await ctx.route(/https:\/\/(api|accounts)\.spotify\.com\/.*/, fakeSpotify(log));
+  const fake = fakeSpotify(log);
+  await ctx.route(/https:\/\/(api|accounts)\.spotify\.com\/.*/, fake);
   await ctx.route(/https:\/\/(fonts\.|i\.scdn)/, r => r.fulfill({status: 200, body: ""}));
   // Test the "type your Client ID" path: serve config.js with the ID left blank.
   const cfg = require("fs").readFileSync(require("path").join(__dirname, "..", "config.js"), "utf8").replace(/SPOTIFY_CLIENT_ID: "[^"]*"/, 'SPOTIFY_CLIENT_ID: ""');
@@ -48,6 +56,7 @@ async function phone(browser, log) {
   const page = await ctx.newPage();
   page.on("pageerror", e => { console.log("PAGE ERROR", e.message); fails++; });
   await page.goto(BASE);
+  page.spotify = fake.st;
   return page;
 }
 const plays = log => log.filter(x => x.play);
@@ -109,6 +118,39 @@ const toastText = page => page.locator("#toast").textContent();
   let p = plays(logA).pop();
   ok(p.play === "spotify:track:t0" && p.pos === 76000 && p.dev === "d1", "Goal plays the goal song at 1:16 on the chosen device");
   ok((await A.textContent("#now")).includes("Song 0"), "Now Playing shows the song");
+  await A.waitForTimeout(1200);
+  ok(!logA.some(x => "seek" in x), "no jump needed when the device starts at the start time");
+
+  // Start time on a device that ignores it (phones): the app jumps the song to its start time
+  A.spotify.ignorePos = true; logA.length = 0;
+  await A.click('[data-press="goal"]');
+  await A.waitForFunction(() => true); await A.waitForTimeout(1500);
+  const sk = logA.find(x => "seek" in x);
+  ok(sk && sk.seek === 76000 && sk.dev === "d1" && logA.filter(x => "seek" in x).length === 1, "when Spotify starts the song at 0:00, the app jumps it to 1:16 once");
+  A.spotify.ignorePos = false;
+
+  // Big red Stop button: on every tab and over the song editor while a song is on
+  const bigShown = () => A.locator("#bigStop").isVisible();
+  ok(await bigShown(), "big red Stop shows on the Game tab while a song plays");
+  let onAll = true;
+  for (const v of ["songs", "queue", "settings"]) { await A.click(`.tab[data-view="${v}"]`); onAll = onAll && await bigShown(); }
+  await A.click('.tab[data-view="songs"]'); await A.click('[data-filter="all"]'); await A.click('[data-edit="t9"]'); await A.waitForTimeout(300);
+  const onTop = await A.evaluate(() => { const r = document.querySelector("#bigStop").getBoundingClientRect(); return document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2).closest("#bigStop") != null; });
+  ok(onAll && onTop, "big red Stop shows on Songs, Queue and Settings, and on top of the song editor");
+  const bs = await A.locator("#bigStop").boundingBox();
+  ok(bs.height >= 60 && bs.width >= 300 && (await A.evaluate(() => getComputedStyle(document.querySelector("#bigStop")).backgroundImage)).includes("239, 43, 54"), "big Stop is large and red");
+  logA.length = 0;
+  await A.click("#bigStop"); await A.waitForTimeout(200);
+  ok(logA.some(x => x.pause) && !(await bigShown()) && (await A.locator("#now").getAttribute("class")).includes("idle"), "big Stop pauses Spotify and then hides");
+  await A.click(".sheet .btn.red[data-close]");
+  await A.click('.tab[data-view="game"]');
+  ok(!(await bigShown()), "no Stop button when nothing is playing");
+
+  // When a song ends by itself (or is paused in Spotify), the Stop button goes away
+  await A.click('[data-press="goal"]'); await A.waitForFunction(() => !document.querySelector("#bigStop").hidden);
+  A.spotify.playing = null;
+  await A.waitForFunction(() => document.querySelector("#bigStop").hidden, null, {timeout: 12000}).catch(() => {});
+  ok(!(await bigShown()), "the Stop button goes away when Spotify stops playing");
 
   // Penalty never repeats back-to-back
   logA.length = 0;
@@ -172,11 +214,22 @@ const toastText = page => page.locator("#toast").textContent();
   const vols = logA.filter(x => "vol" in x).map(x => x.vol);
   ok(vols.slice(0, 6).every((v, i) => i === 0 || v < vols[i - 1]) && logA.some(x => x.pause) && vols[vols.length - 1] === 80, "Fade lowers the volume, pauses, then puts the volume back");
 
+  // Stop in the middle of a fade: pauses first, then the volume goes back to normal
+  await A.click('.tab[data-view="settings"]'); await A.locator("#fadeLen").fill("4"); await A.click('.tab[data-view="game"]');
+  await A.click('[data-press="penalty"]'); await A.waitForTimeout(200);
+  logA.length = 0;
+  await A.click('#now [data-act2="fade"]'); await A.waitForTimeout(1300);
+  await A.click("#bigStop"); await A.waitForTimeout(1800);
+  const ix = logA.findIndex(x => x.pause), lastVol = logA.filter(x => "vol" in x).pop();
+  ok(ix >= 0 && lastVol.vol === 80 && logA.findIndex(x => x.vol === 80) > ix, "Stop during a fade pauses first and leaves the volume back at normal");
+
   // Use the spot playing now
   await A.click('.tab[data-view="songs"]'); await A.click('[data-filter="all"]'); await A.click('[data-edit="t40"]');
   await A.click("#edPlay0");
   ok(plays(logA).pop().pos === 0, "Preview from the beginning starts at 0:00");
+  A.spotify.progressOverride = 75400;
   await A.click("#edHere"); await A.waitForTimeout(150);
+  A.spotify.progressOverride = null;
   ok((await A.evaluate(() => window.__sb.board.songs.find(s => s.id === "t40").start)) === 75000, "Use the spot playing now sets 1:15");
   await A.click(".sheet .btn.red[data-close]");
   ok((await A.evaluate(() => window.__sb.board.game.played.includes("t40"))) === false, "previews don't count as played");
@@ -200,7 +253,7 @@ const toastText = page => page.locator("#toast").textContent();
   await A.click('[data-press="goal"]'); await A.waitForTimeout(250);
   lp = plays(logA).pop();
   ok(lp && lp.off === 55 && (await A.evaluate(L => window.__sb.board.songs.find(x => x.id === L).idx, LOCAL)) === 55, "if the playlist was rearranged, it finds the local song's new position");
-  await A.click('#now [data-act2="stop"]');
+  await A.click("#bigStop");
   await A.evaluate(L => { const b = window.__sb.board; b.songs.find(x => x.id === L).cats = []; b.songs[0].cats.push("goal"); window.__sb.changed(); }, LOCAL);
 
   // Sync between two devices
@@ -223,12 +276,22 @@ const toastText = page => page.locator("#toast").textContent();
   await A.reload();
   ok((await A.evaluate(() => window.__sb.board.songs.length)) === 56 && (await A.textContent('[data-press="goal"] small')).includes("Song 0"), "after reload, songs and buttons are still there");
 
+  // Import a playlist where local files are marked only on the playlist entry
+  await A.click('.tab[data-view="songs"]'); await A.click('[data-act="import"]'); await A.click('#plList [data-i="2"]');
+  await A.waitForFunction(() => window.__sb.board.songs.length === 57);
+  const pd = await A.evaluate(() => window.__sb.board.songs.find(s => s.id === "spotify:local:Barn+Band::Puck+Drop:120"));
+  ok(pd && pd.local && pd.pl === "p3" && pd.idx === 0 && pd.name === "Puck Drop", "local file marked only on the playlist entry is imported");
+  ok(/1 new song \(1 local\).*didn't send the details of 1 local file/.test(await toastText(A)), "import says when Spotify left out a local file's details");
+
   await A.click('.tab[data-view="game"]');
   await A.evaluate(() => window.scrollTo(0, 0));
   await A.screenshot({path: "test/shot-game.png"});
   await A.click('.tab[data-view="songs"]'); await A.screenshot({path: "test/shot-songs.png"});
   await A.click('.tab[data-view="queue"]'); await A.screenshot({path: "test/shot-queue.png"});
-  await A.click('.tab[data-view="songs"]'); await A.click('[data-edit="t0"]'); await A.waitForTimeout(300); await A.screenshot({path: "test/shot-editor.png"});
+  await A.click('.tab[data-view="songs"]'); await A.click('[data-filter="all"]'); await A.click('[data-edit="t0"]'); await A.waitForTimeout(300); await A.screenshot({path: "test/shot-editor.png"});
+  await A.click(".sheet .btn.red[data-close]"); await A.click('.tab[data-view="game"]');
+  await A.click('[data-press="goal"]'); await A.waitForTimeout(400); await A.screenshot({path: "test/shot-playing.png"});
+  await A.click('.tab[data-view="songs"]'); await A.click('[data-edit="t3"]'); await A.waitForTimeout(400); await A.screenshot({path: "test/shot-playing-editor.png"});
 
   await browser.close();
   console.log(fails ? `\n${fails} FAILED` : "\nALL PASSED");

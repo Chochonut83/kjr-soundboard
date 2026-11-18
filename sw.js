@@ -1,6 +1,6 @@
 // Lets the soundboard open with a weak signal at the rink. When you upload a new version,
 // change the number below so phones pick it up.
-const VERSION = "kjr-sb-2";
+const VERSION = "kjr-sb-3";
 const CORE = ["./", "./index.html", "./app.js", "./config.js", "./firebase-glue.js", "./manifest.webmanifest", "./logo-240.png", "./soundboard-art.jpg", "./favicon.png", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
@@ -15,7 +15,11 @@ self.addEventListener("fetch", e => {
   const url = new URL(req.url);
   if (url.origin === self.location.origin) {
     // App files: network first so updates show up, saved copy when there's no signal.
-    e.respondWith(fetch(req).then(res => {
+    // "no-cache" asks GitHub whether the file changed instead of using the browser's
+    // 10-minute copy, so a new version shows up the next time the app opens.
+    // (A page load can't be copied with new options, so it is fetched by its address.)
+    const net = req.mode === "navigate" ? fetch(req.url, {cache: "no-cache", credentials: "same-origin", redirect: "manual"}) : fetch(req, {cache: "no-cache"});
+    e.respondWith(net.then(res => {
       if (res.ok && !url.search) { const copy = res.clone(); caches.open(VERSION).then(c => c.put(req, copy)); }
       return res;
     }).catch(() => caches.match(req, {ignoreSearch: true}).then(r => r || (req.mode === "navigate" ? caches.match("./index.html") : undefined))));
