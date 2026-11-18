@@ -185,9 +185,16 @@ async function playSong(song, src, opts) {
   if (!auth) { toast("Connect Spotify first.", "err"); return false; }
   if (!settings.device) { chooseDevice(() => playSong(song, src, opts)); return false; }
   await stopFade();
-  const body = {uris: [song.uri], position_ms: (opts && opts.fromStart) ? 0 : (song.start || 0)};
+  const position_ms = (opts && opts.fromStart) ? 0 : (song.start || 0);
+  let body = {uris: [song.uri], position_ms};
   const go = () => sp("PUT", "/me/player/play", body, {device_id: settings.device.id});
   try {
+    if (song.local) {
+      // Spotify only plays a local file from inside its playlist, by its position there.
+      const idx = await findLocal(song);
+      if (idx == null) { toast(`"${song.name}" isn't in its playlist anymore. Add it back in Spotify, then import the playlist again.`, "err"); return false; }
+      body = {context_uri: "spotify:playlist:" + song.pl, offset: {position: idx}, position_ms};
+    }
     try { await go(); }
     catch (e) {
       if (e.status !== 404 && e.reason !== "NO_ACTIVE_DEVICE") throw e;
@@ -201,7 +208,50 @@ async function playSong(song, src, opts) {
   now = {id: song.id, src, at: Date.now(), from: body.position_ms};
   if (src !== "preview") store.set("now", now);
   renderNow();
+  if (song.local) watchLocal(song, now);
   return true;
+}
+
+// Where a local song sits in its playlist right now. Checks the saved spot first (one quick request),
+// and looks through the playlist only if the playlist was rearranged.
+async function findLocal(song) {
+  const at = j => { const it = j && j.items && j.items[0]; const t = it && (it.item || it.track); return t && t.uri; };
+  if (song.idx != null) {
+    const j = await sp("GET", `/playlists/${song.pl}/items`, null, {limit: 1, offset: song.idx});
+    if (at(j) === song.uri) return song.idx;
+  }
+  const q = {limit: 50, offset: 0};
+  for (let n = 0; n < 40; n++) {
+    const j = await sp("GET", `/playlists/${song.pl}/items`, null, q);
+    const k = ((j && j.items) || []).findIndex(it => { const t = it && (it.item || it.track); return t && t.uri === song.uri; });
+    if (k >= 0) { song.idx = q.offset + k; changed({render: false}); return song.idx; }
+    if (!j || !j.next) break; q.offset += 50;
+  }
+  return null;
+}
+
+// A local song plays inside its playlist, so Spotify would carry on into the next playlist song.
+// The app stops it when the local song ends, and warns if Spotify couldn't play the file at all.
+let localWatch = 0;
+function watchLocal(song, started) {
+  const id = ++localWatch;
+  const stillOurs = () => id === localWatch && now === started;
+  const playingUri = async () => { const st = await sp("GET", "/me/player/currently-playing"); return st && st.is_playing !== false ? ((st.item || st.track || {}).uri || "") : null; };
+  setTimeout(async () => {
+    if (!stillOurs()) return;
+    try { const u = await playingUri(); if (u != null && u !== song.uri && stillOurs()) toast(`Spotify skipped "${song.name}". The local file isn't on ${settings.device ? settings.device.name : "that device"}: see the setup guide.`, "err"); } catch (e) {}
+  }, 2500);
+  const left = Math.max(1000, (song.dur || 0) - (started.from || 0));
+  setTimeout(async () => {
+    if (!stillOurs()) return;
+    try {
+      const u = await playingUri();
+      if (u && u !== song.uri && stillOurs()) {
+        await sp("PUT", "/me/player/pause", null, {device_id: settings.device.id});
+        now = null; store.del("now"); renderNow();
+      }
+    } catch (e) {}
+  }, left + 1500);
 }
 
 async function stopMusic() {
@@ -297,7 +347,7 @@ function emptyCat(k) {
 function skateSheet() {
   const list = songsIn("skate");
   if (!list.length) return emptyCat("skate");
-  sheet(`<h3>Skate-out song</h3><div class="list">${list.map(s => `<button class="item" data-id="${s.id}">${art(s)}<span class="grow"><b>${esc(s.name)}</b><small>${esc(s.artist)} · from ${fmt(s.start)}</small></span><span class="play-ico">▶</span></button>`).join("")}</div>`,
+  sheet(`<h3>Skate-out song</h3><div class="list">${list.map(s => `<button class="item" data-id="${esc(s.id)}">${art(s)}<span class="grow"><b>${esc(s.name)}</b><small>${esc(s.artist)} · from ${fmt(s.start)}</small></span><span class="play-ico">▶</span></button>`).join("")}</div>`,
     w => w.querySelectorAll("[data-id]").forEach(b => b.onclick = async () => { closeSheet(); const s = songById(b.dataset.id); if (await playSong(s, "skate")) { markPlayed(s, "skate"); changed(); } }));
 }
 function newGameFlow() {
@@ -338,26 +388,37 @@ async function importPlaylist(p) {
       items = items.concat((j && j.items) || []);
       if (!j || !j.next) break; q.offset += 50;
     }
-    let added = 0, have = 0, skipped = 0;
-    for (const it of items) {
+    let added = 0, have = 0, skipped = 0, locals = 0;
+    items.forEach((it, i) => {
       const t = it && (it.item || it.track);
-      if (!t || t.type !== "track" || t.is_local || !t.id) { skipped++; continue; }
-      if (songById(t.id)) { have++; continue; }
+      const local = !!(t && (t.is_local || /^spotify:local:/.test(t.uri || "")));
+      if (!t || t.type !== "track" || (!local && !t.id) || (local && !t.uri)) { skipped++; return; }
+      const id = local ? t.uri : t.id;
+      const old = songById(id);
+      // Local files can only be played from their playlist, by position, so remember where they are.
+      if (local && old) { if (!old.pl || old.pl === p.id) { old.pl = p.id; old.idx = i; } }
+      if (old) { have++; return; }
       const imgs = (t.album && t.album.images) || [];
-      board.songs.push({id: t.id, uri: t.uri, name: t.name, artist: (t.artists || []).map(a => a.name).join(", "), img: imgs.length ? imgs[imgs.length - 1].url : "", dur: t.duration_ms || 0, start: 0, cats: []});
-      added++;
-    }
+      const dur = t.duration_ms || (local ? (+String(t.uri).split(":").pop() || 0) * 1000 : 0);
+      const artist = (t.artists || []).map(a => a && a.name).filter(Boolean).join(", ") || (local ? decodeLocal(t.uri, 2) : "");
+      const s = {id, uri: t.uri, name: t.name || (local ? decodeLocal(t.uri, 4) : "Untitled"), artist, img: imgs.length ? imgs[imgs.length - 1].url : "", dur, start: 0, cats: []};
+      if (local) { s.local = true; s.pl = p.id; s.idx = i; locals++; }
+      board.songs.push(s); added++;
+    });
     if (!board.playlists.find(x => x.id === p.id)) board.playlists.push({id: p.id, name: p.name});
     songFilter = added ? "unsorted" : songFilter; view = "songs"; changed();
-    toast(`${p.name}: ${added} new song${added === 1 ? "" : "s"}${have ? `, ${have} already here` : ""}${skipped ? `, ${skipped} skipped (local files or podcasts)` : ""}.`, "ok");
+    toast(`${p.name}: ${added} new song${added === 1 ? "" : "s"}${locals ? ` (${locals} local)` : ""}${have ? `, ${have} already here` : ""}${skipped ? `, ${skipped} skipped (podcasts or missing songs)` : ""}.`, "ok");
   } catch (e) { toast(spotifyError(e), "err"); }
 }
+
+// Local file URIs look like spotify:local:Artist:Album:Title:Seconds, with + for spaces.
+function decodeLocal(uri, part) { try { return decodeURIComponent((String(uri).split(":")[part] || "").replace(/\+/g, " ")); } catch (e) { return ""; } }
 
 // ---------- song editor ----------
 function art(s) { return s.img ? `<img class="art" src="${esc(s.img)}" alt="" loading="lazy">` : `<span class="art blank">♪</span>`; }
 function editSong(id) {
   const s = songById(id); if (!s) return;
-  const w = sheet(`<div class="ed-head">${art(s)}<div class="grow"><b>${esc(s.name)}</b><small>${esc(s.artist)} · ${fmt(s.dur)}</small></div></div>
+  const w = sheet(`<div class="ed-head">${art(s)}<div class="grow"><b>${esc(s.name)}</b><small>${esc(s.artist)} · ${fmt(s.dur)}${s.local ? " · local file" : ""}</small></div></div>${s.local ? `<p class="tiny muted">Local file: Spotify plays it from your playlist, so the file must be on the speaker device's Spotify too.</p>` : ""}
     <label class="lbl">Buttons</label>
     <div class="chips" id="edCats">${CATS.map(c => `<button class="chip ${s.cats.includes(c.k) ? "on" : ""} c-${c.k}" data-k="${c.k}">${c.label}</button>`).join("")}</div>
     <p class="tiny muted">Goal has one song. Choosing Goal here replaces the current goal song.</p>
@@ -393,7 +454,7 @@ function editSong(id) {
     try {
       const st = await sp("GET", "/me/player/currently-playing");
       const item = st && (st.item || st.track);
-      if (!item || item.id !== s.id) { toast("Play this song first, then pause it at the right moment.", "err"); return; }
+      if (!item || (s.local ? item.uri !== s.uri : item.id !== s.id)) { toast("Play this song first, then pause it at the right moment.", "err"); return; }
       setStart(Math.round(st.progress_ms / 1000) * 1000); toast("Start time set to " + fmt(s.start) + ".", "ok");
     } catch (e) { toast(spotifyError(e), "err"); }
   };
@@ -414,7 +475,7 @@ function addToQueueSheet() {
     w.querySelector("#qaF").innerHTML = [["stop", "Stoppage"], ["all", "All songs"], ["inter", "Intermission"]].map(([k, l]) => `<button class="chip ${f === k ? "on" : ""}" data-f="${k}">${l}</button>`).join("");
     w.querySelector("#qaList").innerHTML = list.length ? list.map(s => {
       const n = board.game.queue.filter(x => x === s.id).length;
-      return `<button class="item" data-id="${s.id}">${art(s)}<span class="grow"><b>${esc(s.name)}</b><small>${esc(s.artist)} · from ${fmt(s.start)}</small></span><span class="qcount">${n ? "✓" + (n > 1 ? n : "") : "+"}</span></button>`;
+      return `<button class="item" data-id="${esc(s.id)}">${art(s)}<span class="grow"><b>${esc(s.name)}</b><small>${esc(s.artist)} · from ${fmt(s.start)}</small></span><span class="qcount">${n ? "✓" + (n > 1 ? n : "") : "+"}</span></button>`;
     }).join("") : `<div class="empty">No songs here yet.</div>`;
     w.querySelectorAll("[data-f]").forEach(b => b.onclick = () => { f = b.dataset.f; draw(w); });
     w.querySelectorAll("#qaList [data-id]").forEach(b => b.onclick = () => { board.game.queue.push(b.dataset.id); changed({render: false}); draw(w); });
@@ -471,7 +532,7 @@ function songsView() {
     <div class="row between center"><h2>Songs</h2><button class="btn blue" data-act="import">+ Import playlist</button></div>
     ${board.playlists.length ? `<p class="tiny muted">Imported: ${board.playlists.map(p => esc(p.name)).join(", ")}</p>` : ""}
     <div class="chips scroll">${filters.map(([k, l]) => `<button class="chip ${songFilter === k ? "on" : ""} ${CAT[k] ? "c-" + k : ""}" data-filter="${k}">${l} <span class="cnt">${counts[k]}</span></button>`).join("")}</div>
-    <div class="list">${list.length ? list.map(s => `<button class="item" data-edit="${s.id}">${art(s)}<span class="grow"><b>${esc(s.name)}</b><small>${esc(s.artist)}</small><span class="tags">${s.cats.map(k => `<i class="tag c-${k}">${CAT[k].label}</i>`).join("")}</span></span><span class="start">${fmt(s.start)}</span></button>`).join("")
+    <div class="list">${list.length ? list.map(s => `<button class="item" data-edit="${esc(s.id)}">${art(s)}<span class="grow"><b>${esc(s.name)}</b><small>${esc(s.artist)}${s.local ? " · local file" : ""}</small><span class="tags">${s.cats.map(k => `<i class="tag c-${k}">${CAT[k].label}</i>`).join("")}</span></span><span class="start">${fmt(s.start)}</span></button>`).join("")
       : `<div class="empty">${board.songs.length ? "No songs in this list yet. Tap a song to choose its buttons." : "Import a Spotify playlist to get started. Then tap each song to put it on a button and set where it starts."}</div>`}</div>`;
 }
 function queueView() {
@@ -521,7 +582,7 @@ function settingsView() {
       <h4>Back up</h4>
       <div class="row gap"><button class="btn ghost grow" data-act="export">Save a backup file</button><label class="btn ghost grow">Load a backup<input type="file" accept="application/json" id="importFile" hidden></label></div>
     </section>
-    <div class="about"><img src="soundboard-art.jpg" alt="KJR Soundboard" loading="lazy"><p class="tiny muted">KJR Game Day Soundboard · v1.1</p></div>`;
+    <div class="about"><img src="soundboard-art.jpg" alt="KJR Soundboard" loading="lazy"><p class="tiny muted">KJR Game Day Soundboard · v1.2</p></div>`;
 }
 
 function bind(root) {

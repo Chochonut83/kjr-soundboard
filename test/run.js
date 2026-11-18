@@ -7,7 +7,8 @@ const ok = (c, m) => { console.log((c ? "PASS " : "FAIL ") + m); if (!c) fails++
 // ----- pretend Spotify -----
 function fakeSpotify(log) {
   const tracks = Array.from({length: 55}, (_, i) => ({id: "t" + i, uri: "spotify:track:t" + i, type: "track", name: "Song " + i, artists: [{name: "Band " + i}], duration_ms: 200000, album: {images: [{url: "https://i.scdn.co/x" + i}]}}));
-  const items = tracks.map(t => ({item: t})).concat([{item: {type: "track", is_local: true, id: null, uri: "spotify:local:x", name: "Local"}}]);
+  const LOCAL = "spotify:local:Rink+Band::Rangers+Anthem:3";
+  const items = tracks.map(t => ({item: t})).concat([{item: {type: "track", is_local: true, id: null, uri: LOCAL, name: "Rangers Anthem", artists: [{name: "Rink Band"}], duration_ms: 3000, album: {images: []}}}, {item: null}]);
   const st = {vol: 80, playing: null, progress: 0};
   return async route => {
     const req = route.request(), u = new URL(req.url()), m = req.method(), p = u.pathname;
@@ -21,11 +22,18 @@ function fakeSpotify(log) {
     if (p === "/v1/me/playlists") return json({items: [{id: "p1", name: "Game Day", owner: {id: "coach"}, items: {total: 56}, images: []}, {id: "p2", name: "Top Hits", owner: {id: "spotify"}, items: {total: 50}, images: []}], next: null});
     if (p === "/v1/playlists/p1/items") { const off = +u.searchParams.get("offset"); const page = items.slice(off, off + 50); return json({items: page, next: off + 50 < items.length ? "more" : null}); }
     if (p === "/v1/me/player/devices") return json({devices: [{id: "d1", name: "Rink iPad", type: "Tablet", is_active: false, supports_volume: true}]});
-    if (p === "/v1/me/player/play" && m === "PUT") { const b = JSON.parse(req.postData()); log.push({play: b.uris[0], pos: b.position_ms, dev: u.searchParams.get("device_id")}); st.playing = b.uris[0].split(":")[2]; return route.fulfill({status: 204}); }
-    if (p === "/v1/me/player/pause") { log.push({pause: true}); st.playing = null; return route.fulfill({status: 204}); }
+    if (p === "/v1/me/player/play" && m === "PUT") {
+      const b = JSON.parse(req.postData());
+      if (b.context_uri) { // local file: plays from the playlist, then Spotify moves on to the next song
+        const uri = (items[b.offset.position] || {}).item; log.push({play: uri && uri.uri, ctx: b.context_uri, off: b.offset.position, pos: b.position_ms, dev: u.searchParams.get("device_id")});
+        st.playingUri = uri && uri.uri; st.playing = "local"; clearTimeout(st.adv); st.adv = setTimeout(() => { st.playingUri = "spotify:track:t0"; st.playing = "t0"; }, 1200);
+      } else { log.push({play: b.uris[0], pos: b.position_ms, dev: u.searchParams.get("device_id")}); clearTimeout(st.adv); st.playing = b.uris[0].split(":")[2]; st.playingUri = b.uris[0]; }
+      return route.fulfill({status: 204});
+    }
+    if (p === "/v1/me/player/pause") { log.push({pause: true}); st.playing = null; st.playingUri = null; clearTimeout(st.adv); return route.fulfill({status: 204}); }
     if (p === "/v1/me/player/volume") { const v = +u.searchParams.get("volume_percent"); log.push({vol: v}); st.vol = v; return route.fulfill({status: 204}); }
     if (p === "/v1/me/player") return json({is_playing: !!st.playing, device: {id: "d1", supports_volume: true, volume_percent: st.vol}});
-    if (p === "/v1/me/player/currently-playing") return json({item: {id: st.playing}, progress_ms: 75400});
+    if (p === "/v1/me/player/currently-playing") return json({is_playing: !!st.playing, item: st.playing ? {id: st.playing === "local" ? null : st.playing, uri: st.playingUri} : null, progress_ms: 75400});
     return json({error: {status: 404, message: "not mocked " + p}}, 404);
   };
 }
@@ -66,11 +74,11 @@ const toastText = page => page.locator("#toast").textContent();
   await A.click('[data-act="import"]');
   ok(await A.locator('#plList [data-i="1"]').isDisabled(), "playlists made by others are greyed out");
   await A.click('#plList [data-i="0"]');
-  await A.waitForFunction(() => window.__sb.board.songs.length === 55);
-  ok(/55 new songs.*1 skipped/.test(await toastText(A)), "imports all 55 songs across pages and skips the local file");
+  await A.waitForFunction(() => window.__sb.board.songs.length === 56);
+  ok(/56 new songs \(1 local\).*1 skipped/.test(await toastText(A)), "imports all 56 songs across pages, including the local file, and skips the empty slot");
   await A.click('.tab[data-view="songs"]'); await A.click('[data-act="import"]'); await A.click('#plList [data-i="0"]');
   await A.waitForTimeout(400);
-  ok((await A.evaluate(() => window.__sb.board.songs.length)) === 55 && /55 already here/.test(await toastText(A)), "re-importing doesn't duplicate songs");
+  ok((await A.evaluate(() => window.__sb.board.songs.length)) === 56 && /56 already here/.test(await toastText(A)), "re-importing doesn't duplicate songs");
 
   // Song editor: goal + start time
   await A.click('[data-filter="all"]');
@@ -173,6 +181,28 @@ const toastText = page => page.locator("#toast").textContent();
   await A.click(".sheet .btn.red[data-close]");
   ok((await A.evaluate(() => window.__sb.board.game.played.includes("t40"))) === false, "previews don't count as played");
 
+  // Local file: plays from its playlist position, at its start time, and stops when it ends
+  const LOCAL = "spotify:local:Rink+Band::Rangers+Anthem:3";
+  const lsong = await A.evaluate(L => { const s = window.__sb.board.songs.find(x => x.id === L); return s && {local: s.local, idx: s.idx, pl: s.pl, name: s.name, artist: s.artist, dur: s.dur}; }, LOCAL);
+  ok(lsong && lsong.local && lsong.idx === 55 && lsong.pl === "p1" && lsong.artist === "Rink Band" && lsong.dur === 3000, "local song saved with its playlist and position");
+  ok((await A.textContent(`[data-edit="${LOCAL}"]`)).includes("local file"), "song list marks it as a local file");
+  await A.evaluate(L => { const s = window.__sb.board.songs.find(x => x.id === L); s.cats = ["goal"]; s.start = 500; window.__sb.board.songs.forEach(o => { if (o !== s) o.cats = o.cats.filter(c => c !== "goal"); }); window.__sb.changed(); }, LOCAL);
+  await A.click('.tab[data-view="game"]');
+  logA.length = 0;
+  await A.click('[data-press="goal"]'); await A.waitForTimeout(150);
+  let lp = plays(logA).pop();
+  ok(lp && lp.ctx === "spotify:playlist:p1" && lp.off === 55 && lp.pos === 500 && lp.play === LOCAL, "Goal plays the local song from its playlist position at its start time");
+  await A.waitForTimeout(4800);
+  ok(logA.some(x => x.pause) && (await A.locator("#now").getAttribute("class")).includes("idle"), "when the local song ends, the app stops Spotify before the next playlist song carries on");
+  // Playlist rearranged: the saved position is wrong, so the app finds the song again
+  await A.evaluate(L => { window.__sb.board.songs.find(x => x.id === L).idx = 3; window.__sb.changed(); }, LOCAL);
+  logA.length = 0;
+  await A.click('[data-press="goal"]'); await A.waitForTimeout(250);
+  lp = plays(logA).pop();
+  ok(lp && lp.off === 55 && (await A.evaluate(L => window.__sb.board.songs.find(x => x.id === L).idx, LOCAL)) === 55, "if the playlist was rearranged, it finds the local song's new position");
+  await A.click('#now [data-act2="stop"]');
+  await A.evaluate(L => { const b = window.__sb.board; b.songs.find(x => x.id === L).cats = []; b.songs[0].cats.push("goal"); window.__sb.changed(); }, LOCAL);
+
   // Sync between two devices
   await A.click('.tab[data-view="settings"]');
   await A.click('[data-act="synccreate"]');
@@ -182,8 +212,8 @@ const toastText = page => page.locator("#toast").textContent();
   const logB = [], B = await phone(browser, logB);
   await B.click('.tab[data-view="settings"]');
   await B.fill("#joinCode", code); await B.click('[data-act="syncjoin"]');
-  await B.waitForFunction(() => window.__sb.board.songs.length === 55);
-  ok(true, "second phone joins and gets all 55 songs");
+  await B.waitForFunction(() => window.__sb.board.songs.length === 56);
+  ok(true, "second phone joins and gets all 56 songs");
   await A.evaluate(() => { window.__sb.board.songs[2].start = 99000; window.__sb.changed(); });
   await B.waitForFunction(() => window.__sb.board.songs[2].start === 99000, null, {timeout: 4000});
   ok(true, "a start-time change on phone A shows up on phone B");
@@ -191,7 +221,7 @@ const toastText = page => page.locator("#toast").textContent();
 
   // Reload keeps everything
   await A.reload();
-  ok((await A.evaluate(() => window.__sb.board.songs.length)) === 55 && (await A.textContent('[data-press="goal"] small')).includes("Song 0"), "after reload, songs and buttons are still there");
+  ok((await A.evaluate(() => window.__sb.board.songs.length)) === 56 && (await A.textContent('[data-press="goal"] small')).includes("Song 0"), "after reload, songs and buttons are still there");
 
   await A.click('.tab[data-view="game"]');
   await A.evaluate(() => window.scrollTo(0, 0));

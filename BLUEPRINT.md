@@ -1,6 +1,6 @@
 # KJR Game Day Soundboard — Blueprint
 
-As of November 17, 2026. Live version: v1.1 (new app icon and artwork) in `Chochonut83/kjr-soundboard`. The Claude GitHub App has access to the repo. The soundboard rules block is published in Firebase (owner pasted it Nov 17). Spotify Client ID `028414dc172f4768837e9eed2f1caaf2` is in `config.js`.
+As of November 17, 2026. Live version: v1.2 (local files) in `Chochonut83/kjr-soundboard`. The Claude GitHub App has access to the repo. The soundboard rules block is published in Firebase (owner pasted it Nov 17). Spotify Client ID `028414dc172f4768837e9eed2f1caaf2` is in `config.js`.
 
 Open item: `kjr-stat-tracker/firestore.rules` in that repo (and its copy in this project) doesn't have the soundboard block yet. Add it before anyone pastes the Stat Tracker's rules file into Firebase again, or soundboard sync stops working.
 
@@ -43,6 +43,7 @@ A phone-first web app that plays game day music at Kitchener Jr Rangers games. I
 | Intermission | Random from `inter` songs not yet played this game; when all played, repeats one (not the last) and says so |
 | Stoppage | If the queue has songs left: next one in order (`qpos`). Otherwise random from `stop` songs not yet played; same repeat rule |
 | New game | New `game` object: played list, queue and `qpos` cleared |
+| Local files | Imported from playlists as songs with `id = uri` (`spotify:local:Artist:Album:Title:Seconds`), `local:true`, `pl` (playlist id) and `idx` (position). The Web API can't play a local URI directly, so they play with `{context_uri: spotify:playlist:<pl>, offset:{position: idx}, position_ms}`. Before each play `findLocal` checks `idx` with one `limit=1` request and searches the playlist if it moved. `watchLocal`: at 2.5 s, warns if Spotify isn't on that song (file not on the device); when the song should have ended (+1.5 s), pauses if Spotify moved on to another playlist song. Re-importing refreshes `idx`. |
 | Now Playing | Fade (volume steps down over `settings.fade` s, pause, volume restored; devices without `supports_volume` just pause), Stop, Next (presses the same button again) |
 
 Played list is shared by Intermission, Stoppage and the queue. Goal, Penalty, Skate-out and previews don't add to it.
@@ -68,7 +69,7 @@ Spotify endpoints used (post-February-2026 names): `GET /me`, `GET /me/playlists
 
 1. Edit the files in `kjr-soundboard/`.
 2. `node --check app.js`.
-3. Test: `node test/server.js .` then `NODE_PATH=<playwright> node test/run.js` (33 checks: sign-in, import, editor, every button, queue, fade, start-from-now, two-phone sync, reload).
+3. Test: `node test/server.js .` then `NODE_PATH=<playwright> node test/run.js` (38 checks: sign-in, import incl. a local file, editor, every button, queue, fade, start-from-now, local file play/stop/re-find, two-phone sync, reload).
 4. Push to `Chochonut83/kjr-soundboard` `main`. Pages republishes in 1–2 minutes. Never overwrite a `config.js` that has the real Client ID with a blank one.
 5. If `firestore.rules` changed: update it in both repos and tell the owner to paste it into Firebase.
 6. Update this blueprint, the stored files and the setup guide.
@@ -77,6 +78,7 @@ Spotify endpoints used (post-February-2026 names): `GET /me`, `GET /me/playlists
 
 - iPhone: apps can't change Spotify's volume, so Fade = stop. Home-screen apps have separate storage from Safari; connect Spotify inside whichever one is used.
 - Spotify Autoplay can start a similar song when a track ends; turn it off on the speaker device.
+- Local files only play if Spotify on the speaker device has the file (on a phone: the playlist downloaded with its local files).
 - Phones put Spotify to sleep in the background; the app re-finds the device or asks.
 
 ## Change history
@@ -85,3 +87,4 @@ Spotify endpoints used (post-February-2026 names): `GET /me`, `GET /me/playlists
 |---|---|
 | Nov 17, 2026 | First version built and tested (`1b049fe`); pushed to GitHub with the Spotify Client ID (`8898d9d`); Firebase rules block published |
 | Nov 17, 2026 | v1.1: owner's KJR Soundboard art as the app icon, favicon, Connect Spotify banner and Settings footer; `sw.js` VERSION `kjr-sb-2`; test serves config.js with a blank Client ID |
+| Nov 17, 2026 | v1.2: local files from playlists are imported and play from their playlist position; the app stops Spotify when a local song ends |
