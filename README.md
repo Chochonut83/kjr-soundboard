@@ -15,7 +15,11 @@ Live at **https://chochonut83.github.io/kjr-soundboard/** (GitHub Pages, branch 
 | Stoppage | The game queue in order if you built one, otherwise a random stoppage song. No song repeats in a game |
 | New game | Clears the played list and the queue |
 
-Now Playing bar: **Fade** (lowers the volume, then pauses), **Stop**, **Next** (another song from the same button).
+Now Playing bar: **Fade** (lowers the volume, then pauses), **Next** (another song from the same button).
+
+While a song plays, a big red **STOP** button sits above the tabs on every screen.
+
+Each song starts at its own start time. If the speaker device starts it from the beginning, the app jumps it to the start time.
 
 ## Files
 
