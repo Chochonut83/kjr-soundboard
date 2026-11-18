@@ -2,7 +2,7 @@
 // SPOTIFY_CLIENT_ID: the Client ID of your app on developer.spotify.com (setup guide, step 1).
 // If it's left blank, the app asks for it on the Settings screen and remembers it on that device.
 window.SB_CONFIG = {
-  SPOTIFY_CLIENT_ID: ""
+  SPOTIFY_CLIENT_ID: "028414dc172f4768837e9eed2f1caaf2"
 };
 
 // Same Firebase project as the KJR Stat Tracker (setup guide, step 3 adds the soundboard's rules).
