@@ -12,12 +12,12 @@ A phone-first web app that plays game day music at Kitchener Jr Rangers games. I
 
 | Thing | Location |
 |---|---|
-| Live app | `https://chochonut83.github.io/kjr-soundboard/` (GitHub Pages, branch `main`, `/ (root)`) once the repo exists |
+| Live app | `https://chochonut83.github.io/kjr-soundboard/` (GitHub Pages, branch `main`, `/ (root)`) |
 | Source in this project | `kjr-soundboard/...` (same files as the repo) |
 | Plan doc | `https://claude.ai/artifact/LAi7Yw2HiyRjrrpR9NX38V` |
 | Setup guide | Claude doc "KJR Game Day Soundboard Setup Guide" `https://claude.ai/artifact/Pzn7Mzgq5UjSocfPsedNDA` (setup steps, game day use, troubleshooting, Future versions list) |
 | Spotify app | Owner's Spotify Developer Dashboard. Redirect URI `https://chochonut83.github.io/kjr-soundboard/`. Development mode: owner needs Premium, max 5 users (User Management). Client ID goes in `config.js` (`SPOTIFY_CLIENT_ID`) or is typed into Settings on each device. |
-| Firebase | Project `kjr-aaa-u13-stattracker` (Stat Tracker's). Collection `soundboards/{syncCode}`. Rules block added to the shared rules file; the owner must paste it into Firebase. |
+| Firebase | Project `kjr-aaa-u13-stattracker` (Stat Tracker's). Collection `soundboards/{syncCode}`. Rules block added to the shared rules file and published in Firebase (Nov 17). |
 | Logo | Header: project file "Kitchener Jr Rangers.png" cropped to the shield (`logo-240.png`). App icon and artwork: the owner's "KJR Soundboard" art (1254×1254 PNG, sent in chat Nov 17; not stored in the project): `icon-192/512.png` (corners outside its frame made transparent), `apple-touch-icon.png` (solid, iOS rounds it), `icon-maskable-*.png` (art at 80% on `#020614`), `favicon.png`, `soundboard-art.jpg` (640 px, on the Connect Spotify banner and the bottom of Settings). |
 
 ## Files
@@ -29,8 +29,8 @@ A phone-first web app that plays game day music at Kitchener Jr Rangers games. I
 | `config.js` | `SB_CONFIG.SPOTIFY_CLIENT_ID` and `FIREBASE_CONFIG` (Stat Tracker's project) |
 | `firebase-glue.js` | Only file that talks to Firebase (SDK 10.12.2, anonymous auth, named app "soundboard") |
 | `firestore.rules` | Complete rules for the shared project (Stat Tracker + soundboard block). Must stay identical to `kjr-stat-tracker/firestore.rules`. |
-| `sw.js` | Offline start (network-first for app files). Bump `VERSION` (`kjr-sb-1`) when icons/sw change. |
-| `manifest.webmanifest`, `icon-*.png`, `apple-touch-icon.png`, `logo-240.png` | Home-screen install (binary files: kept in GitHub only) |
+| `sw.js` | Offline start (network-first for app files). Bump `VERSION` (now `kjr-sb-2`) when icons/sw change. |
+| `manifest.webmanifest`, `icon-*.png`, `apple-touch-icon.png`, `favicon.png`, `logo-240.png`, `soundboard-art.jpg` | Home-screen install (binary files: kept in GitHub only) |
 | `test/server.js`, `test/mock-glue.js`, `test/run.js` | Test with a pretend Spotify and database |
 
 ## Button rules
