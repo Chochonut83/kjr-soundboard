@@ -32,6 +32,18 @@ const CATS = [
   {k: "stop", label: "Stoppage"}
 ];
 const CAT = Object.fromEntries(CATS.map(c => [c.k, c]));
+// Line icons for the game buttons and the speaker pill (24×24, drawn with the text colour).
+const ICONS = {
+  goal: '<path d="M7 18v-6a5 5 0 0 1 10 0v6"/><path d="M5 21h14v-3H5z"/><path d="M12 2v2M4.2 5.2l1.4 1.4M19.8 5.2l-1.4 1.4M2 12h2M20 12h2"/>',
+  penalty: '<circle cx="12" cy="14" r="7"/><path d="M12 10v4l2.5 2M10 2h4M12 2v3"/>',
+  skate: '<path d="M13 2 4 14h7l-1 8 9-12h-7z"/>',
+  inter: '<path d="M4 9h13v5a5 5 0 0 1-5 5H9a5 5 0 0 1-5-5z"/><path d="M17 11h1.5a2.5 2.5 0 0 1 0 5H17"/><path d="M8 2v3M12 2v3"/>',
+  stop: '<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>',
+  speaker: '<path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M19 5a10 10 0 0 1 0 14"/>'
+};
+const icon = k => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[k]}</svg>`;
+// Which game button the song playing now came from (it shows ON AIR). Queue songs come from Stoppage.
+const liveKey = () => now && now.src !== "preview" ? (now.src === "queue" ? "stop" : now.src) : "";
 const SRC_LABEL = {goal: "Goal", penalty: "Penalty", skate: "Skate-out", inter: "Intermission", stop: "Stoppage", queue: "Game queue", preview: "Preview"};
 
 // ---------- saved state ----------
@@ -563,14 +575,15 @@ function gameView() {
     inter: n("inter") ? `Random · ${songsIn("inter").filter(s => !g.played.includes(s.id)).length} left` : "No songs yet",
     stop: si.text
   };
-  const t = new Date(g.at);
+  const t = new Date(g.at), live = liveKey();
+  const pad = (k, label, extra) => `<button class="pad-btn ${k}${extra ? " " + extra : ""}${live === k ? " live" : ""}" data-press="${k}"><span class="onair"><i></i>ON AIR</span>${icon(k)}<span class="txt"><span class="big">${label}</span><small>${sub[k]}</small></span></button>`;
   return `${connectBanner()}
     <div class="board">
-      <button class="pad-btn goal" data-press="goal"><span class="big">GOAL!</span><small>${sub.goal}</small></button>
-      <button class="pad-btn penalty" data-press="penalty"><span class="big">PENALTY</span><small>${sub.penalty}</small></button>
-      <button class="pad-btn skate" data-press="skate"><span class="big">SKATE-OUT</span><small>${sub.skate}</small></button>
-      <button class="pad-btn inter" data-press="inter"><span class="big">INTERMISSION</span><small>${sub.inter}</small></button>
-      <button class="pad-btn stop ${si.mode === "queue" ? "queued" : ""}" data-press="stop"><span class="big">STOPPAGE</span><small>${sub.stop}</small></button>
+      ${pad("goal", "GOAL!")}
+      ${pad("penalty", "PENALTY")}
+      ${pad("skate", "SKATE-OUT")}
+      ${pad("inter", "INTERMISSION")}
+      ${pad("stop", "STOPPAGE", si.mode === "queue" ? "queued" : "")}
     </div>
     <div class="game-foot">
       <span class="muted">Game started ${t.toLocaleDateString([], {month: "short", day: "numeric"})}, ${t.toLocaleTimeString([], {hour: "numeric", minute: "2-digit"})} · ${g.played.length} played</span>
@@ -636,7 +649,7 @@ function settingsView() {
       <h4>Back up</h4>
       <div class="row gap"><button class="btn ghost grow" data-act="export">Save a backup file</button><label class="btn ghost grow">Load a backup<input type="file" accept="application/json" id="importFile" hidden></label></div>
     </section>
-    <div class="about"><img src="soundboard-art.jpg" alt="KJR Soundboard" loading="lazy"><p class="tiny muted">KJR Game Day Soundboard · v1.3</p></div>`;
+    <div class="about"><img src="soundboard-art.jpg" alt="KJR Soundboard" loading="lazy"><p class="tiny muted">KJR Game Day Soundboard · v1.4</p></div>`;
 }
 
 function bind(root) {
@@ -704,10 +717,13 @@ function renderNow() {
   document.body.classList.toggle("playing", !!s);
   bigStop().hidden = !s;
   watchPlayback();
-  if (!s) { bar.className = "now idle"; bar.innerHTML = `<span class="muted">Nothing playing</span>${settings.device ? `<button class="devpill" data-act2="device">🔊 ${esc(settings.device.name)}</button>` : auth ? `<button class="devpill warn" data-act2="device">Choose speaker</button>` : ""}`; }
+  const live = s ? liveKey() : "";
+  document.querySelectorAll("[data-press]").forEach(b => b.classList.toggle("live", b.dataset.press === live));
+  if (!s) { bar.className = "now idle"; bar.innerHTML = `<span class="muted">Nothing playing</span>${settings.device ? `<button class="devpill" data-act2="device">${icon("speaker")}${esc(settings.device.name)}</button>` : auth ? `<button class="devpill warn" data-act2="device">Choose speaker</button>` : ""}`; }
   else {
     bar.className = "now";
     bar.innerHTML = `${art(s)}<div class="grow nowtxt"><b>${esc(s.name)}</b><small>${esc(SRC_LABEL[now.src] || "")} · from ${fmt(now.from)}</small></div>
+      ${fadeRun ? "" : `<span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>`}
       <button class="nbtn" data-act2="fade" ${fadeRun ? "disabled" : ""}>${fadeRun ? "Fading…" : "Fade"}</button>
       ${["penalty", "inter", "stop", "queue", "skate"].includes(now.src) ? `<button class="nbtn" data-act2="next" title="Play a different song from the same button">Next</button>` : ""}`;
   }

@@ -1,6 +1,6 @@
 // Lets the soundboard open with a weak signal at the rink. When you upload a new version,
 // change the number below so phones pick it up.
-const VERSION = "kjr-sb-3";
+const VERSION = "kjr-sb-4";
 const CORE = ["./", "./index.html", "./app.js", "./config.js", "./firebase-glue.js", "./manifest.webmanifest", "./logo-240.png", "./soundboard-art.jpg", "./favicon.png", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
