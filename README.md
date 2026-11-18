@@ -19,6 +19,8 @@ Now Playing bar: **Fade** (lowers the volume, then pauses), **Next** (another so
 
 While a song plays, a big red **STOP** button sits above the tabs on every screen.
 
+The button whose song is playing lights up with **ON AIR**.
+
 Each song starts at its own start time. If the speaker device starts it from the beginning, the app jumps it to the start time.
 
 ## Files

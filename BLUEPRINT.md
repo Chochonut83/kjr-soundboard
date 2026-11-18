@@ -1,6 +1,6 @@
 # KJR Game Day Soundboard — Blueprint
 
-As of November 17, 2026. Live version: v1.3 (start-time jump, big Stop button) in `Chochonut83/kjr-soundboard`. The Claude GitHub App has access to the repo. The soundboard rules block is published in Firebase (owner pasted it Nov 17). Spotify Client ID `028414dc172f4768837e9eed2f1caaf2` is in `config.js`.
+As of November 18, 2026. Live version: v1.4 (Rangers "arena night" look) in `Chochonut83/kjr-soundboard`. The Claude GitHub App has access to the repo. The soundboard rules block is published in Firebase (owner pasted it Nov 17). Spotify Client ID `028414dc172f4768837e9eed2f1caaf2` is in `config.js`.
 
 Open item: `kjr-stat-tracker/firestore.rules` in that repo (and its copy in this project) doesn't have the soundboard block yet. Add it before anyone pastes the Stat Tracker's rules file into Firebase again, or soundboard sync stops working.
 
@@ -24,14 +24,25 @@ A phone-first web app that plays game day music at Kitchener Jr Rangers games. I
 
 | File | What it is |
 |---|---|
-| `index.html` | Layout and all styles (fonts Saira Condensed + Barlow, Stat Tracker colours) |
+| `index.html` | Layout and all styles (fonts Saira Condensed + Barlow; dark "arena night" theme in the shield colours, see Look) |
 | `app.js` | The whole app: Spotify PKCE sign-in, token refresh, playlists import, song editor, buttons, queue, fade, devices, Firebase sync, backup file |
 | `config.js` | `SB_CONFIG.SPOTIFY_CLIENT_ID` and `FIREBASE_CONFIG` (Stat Tracker's project) |
 | `firebase-glue.js` | Only file that talks to Firebase (SDK 10.12.2, anonymous auth, named app "soundboard") |
 | `firestore.rules` | Complete rules for the shared project (Stat Tracker + soundboard block). Must stay identical to `kjr-stat-tracker/firestore.rules`. |
-| `sw.js` | Offline start. App files are network-first with `cache: "no-cache"` (asks GitHub if the file changed, so a new version shows the next time the app opens; page loads fetched by address with `redirect: "manual"`). Bump `VERSION` (now `kjr-sb-3`) when icons/sw change. |
+| `sw.js` | Offline start. App files are network-first with `cache: "no-cache"` (asks GitHub if the file changed, so a new version shows the next time the app opens; page loads fetched by address with `redirect: "manual"`). Bump `VERSION` (now `kjr-sb-4`) when icons/sw change. |
 | `manifest.webmanifest`, `icon-*.png`, `apple-touch-icon.png`, `favicon.png`, `logo-240.png`, `soundboard-art.jpg` | Home-screen install (binary files: kept in GitHub only) |
 | `test/server.js`, `test/mock-glue.js`, `test/run.js` | Test with a pretend Spotify and database |
+
+## Look (v1.4)
+
+Approved from the mockup "KJR Soundboard – New Look Mockup" (`https://claude.ai/artifact/MCXRAf3EU2uKANxS9YoNSY`, Nov 18).
+
+- Colours (CSS variables in `index.html`): background `--bg #071533` (soft spotlight at the top), panels `--panel #0e2453`, borders `--line #20407f`, header `--head #0b1f4d`, logo blue `--blue #16468e`, logo red `--red #e22426`, muted text `--muted #a9bcdd`, playing/sync green `--live #3ddc84`.
+- Header: shield logo, "Kitchener Jr Rangers" small caps over a slanted "GAME DAY SOUNDBOARD" (Soundboard in red), and the shield's blue-white-red diagonal band along the bottom. Header height is `--head-h` (78 px + safe area); the Now Playing strip (`.nowwrap`) sticks right under it.
+- Game buttons (`.pad-btn`): 3D: coloured bottom edge (`--edge`), gloss on the top half, white inner rim like the shield's; press sinks them 6 px. Each has a line icon (`ICONS` in `app.js`: siren, stopwatch, bolt, cup, music note) and the label in `.txt` (`.big` + `small`). GOAL is red with the shield's white band and blue corner; Penalty gold; Skate-out blue; Intermission navy (icon beside the text); Stoppage white, with a blue pill when the queue is on.
+- ON AIR: `liveKey()` gives the button the playing song came from (queue songs = Stoppage, previews = none); `renderNow` toggles `.live` on it (white outline, blinking ON AIR tag, GOAL also glows).
+- Now Playing: green border and an animated equalizer while a song is on (hidden while fading). Speaker pill has a speaker icon.
+- Tabs: line icons; the open tab is logo blue with a red underline. Toast is white (red for errors, green for success). Animations stop for "reduce motion".
 
 ## Button rules
 
@@ -94,3 +105,4 @@ Spotify endpoints used (post-February-2026 names): `GET /me`, `GET /me/playlists
 | Nov 17, 2026 | v1.1: owner's KJR Soundboard art as the app icon, favicon, Connect Spotify banner and Settings footer; `sw.js` VERSION `kjr-sb-2`; test serves config.js with a blank Client ID |
 | Nov 17, 2026 | v1.2: local files from playlists are imported and play from their playlist position; the app stops Spotify when a local song ends |
 | Nov 17, 2026 | v1.3 (`bd2583a`): songs jump to their start time when the device ignores it; big red Stop button on every view while a song plays (replaces the small Stop in Now Playing); Stop during a fade pauses before restoring volume; import also detects local files flagged only on the playlist entry and reports ones Spotify left out; `sw.js` revalidates app files, VERSION `kjr-sb-3` |
+| Nov 18, 2026 | v1.4 (`c18983f`): Rangers "arena night" look from the approved mockup: dark navy theme in the shield colours, 3D press-down game buttons with icons, shield stripe on GOAL and under the header, ON AIR light on the playing button, equalizer in Now Playing, icon tabs, all tabs and sheets restyled; theme colour `#0b1f4d`; `sw.js` VERSION `kjr-sb-4` |
