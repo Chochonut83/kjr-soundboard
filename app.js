@@ -436,7 +436,7 @@ function render() {
 }
 function connectBanner() {
   if (auth) return "";
-  return `<div class="banner"><b>Connect Spotify to start.</b><span>You'll need Spotify Premium and the Spotify app open on the device that plays to the speakers.</span><button class="btn green" data-act="login">Connect Spotify</button></div>`;
+  return `<div class="banner"><img class="hero" src="soundboard-art.jpg" alt="KJR Soundboard"><b>Connect Spotify to start.</b><span>You'll need Spotify Premium and the Spotify app open on the device that plays to the speakers.</span><button class="btn green" data-act="login">Connect Spotify</button></div>`;
 }
 function gameView() {
   const g = board.game, si = stoppageInfo();
@@ -521,7 +521,7 @@ function settingsView() {
       <h4>Back up</h4>
       <div class="row gap"><button class="btn ghost grow" data-act="export">Save a backup file</button><label class="btn ghost grow">Load a backup<input type="file" accept="application/json" id="importFile" hidden></label></div>
     </section>
-    <p class="tiny muted center">KJR Game Day Soundboard · v1</p>`;
+    <div class="about"><img src="soundboard-art.jpg" alt="KJR Soundboard" loading="lazy"><p class="tiny muted">KJR Game Day Soundboard · v1.1</p></div>`;
 }
 
 function bind(root) {

@@ -34,6 +34,9 @@ async function phone(browser, log) {
   const ctx = await browser.newContext({viewport: {width: 390, height: 844}, deviceScaleFactor: 2});
   await ctx.route(/https:\/\/(api|accounts)\.spotify\.com\/.*/, fakeSpotify(log));
   await ctx.route(/https:\/\/(fonts\.|i\.scdn)/, r => r.fulfill({status: 200, body: ""}));
+  // Test the "type your Client ID" path: serve config.js with the ID left blank.
+  const cfg = require("fs").readFileSync(require("path").join(__dirname, "..", "config.js"), "utf8").replace(/SPOTIFY_CLIENT_ID: "[^"]*"/, 'SPOTIFY_CLIENT_ID: ""');
+  await ctx.route(/\/config\.js$/, r => r.fulfill({status: 200, contentType: "text/javascript", body: cfg}));
   const page = await ctx.newPage();
   page.on("pageerror", e => { console.log("PAGE ERROR", e.message); fails++; });
   await page.goto(BASE);

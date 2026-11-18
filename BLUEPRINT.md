@@ -1,6 +1,6 @@
 # KJR Game Day Soundboard — Blueprint
 
-As of November 17, 2026. Live version: GitHub commit `8898d9d` ("Add the Spotify Client ID") in `Chochonut83/kjr-soundboard`. The Claude GitHub App has access to the repo. The soundboard rules block is published in Firebase (owner pasted it Nov 17). Spotify Client ID `028414dc172f4768837e9eed2f1caaf2` is in `config.js`.
+As of November 17, 2026. Live version: v1.1 (new app icon and artwork) in `Chochonut83/kjr-soundboard`. The Claude GitHub App has access to the repo. The soundboard rules block is published in Firebase (owner pasted it Nov 17). Spotify Client ID `028414dc172f4768837e9eed2f1caaf2` is in `config.js`.
 
 Open item: `kjr-stat-tracker/firestore.rules` in that repo (and its copy in this project) doesn't have the soundboard block yet. Add it before anyone pastes the Stat Tracker's rules file into Firebase again, or soundboard sync stops working.
 
@@ -18,7 +18,7 @@ A phone-first web app that plays game day music at Kitchener Jr Rangers games. I
 | Setup guide | Claude doc "KJR Game Day Soundboard Setup Guide" `https://claude.ai/artifact/Pzn7Mzgq5UjSocfPsedNDA` (setup steps, game day use, troubleshooting, Future versions list) |
 | Spotify app | Owner's Spotify Developer Dashboard. Redirect URI `https://chochonut83.github.io/kjr-soundboard/`. Development mode: owner needs Premium, max 5 users (User Management). Client ID goes in `config.js` (`SPOTIFY_CLIENT_ID`) or is typed into Settings on each device. |
 | Firebase | Project `kjr-aaa-u13-stattracker` (Stat Tracker's). Collection `soundboards/{syncCode}`. Rules block added to the shared rules file; the owner must paste it into Firebase. |
-| Logo | Project file "Kitchener Jr Rangers.png", cropped to the shield: `logo-240.png` (header) and the icons (shield on navy `#0b2350`, 80% size; maskable 62%). |
+| Logo | Header: project file "Kitchener Jr Rangers.png" cropped to the shield (`logo-240.png`). App icon and artwork: the owner's "KJR Soundboard" art (1254×1254 PNG, sent in chat Nov 17; not stored in the project): `icon-192/512.png` (corners outside its frame made transparent), `apple-touch-icon.png` (solid, iOS rounds it), `icon-maskable-*.png` (art at 80% on `#020614`), `favicon.png`, `soundboard-art.jpg` (640 px, on the Connect Spotify banner and the bottom of Settings). |
 
 ## Files
 
@@ -84,3 +84,4 @@ Spotify endpoints used (post-February-2026 names): `GET /me`, `GET /me/playlists
 | Date | Change |
 |---|---|
 | Nov 17, 2026 | First version built and tested (`1b049fe`); pushed to GitHub with the Spotify Client ID (`8898d9d`); Firebase rules block published |
+| Nov 17, 2026 | v1.1: owner's KJR Soundboard art as the app icon, favicon, Connect Spotify banner and Settings footer; `sw.js` VERSION `kjr-sb-2`; test serves config.js with a blank Client ID |

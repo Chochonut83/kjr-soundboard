@@ -1,7 +1,7 @@
 // Lets the soundboard open with a weak signal at the rink. When you upload a new version,
 // change the number below so phones pick it up.
-const VERSION = "kjr-sb-1";
-const CORE = ["./", "./index.html", "./app.js", "./config.js", "./firebase-glue.js", "./manifest.webmanifest", "./logo-240.png", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
+const VERSION = "kjr-sb-2";
+const CORE = ["./", "./index.html", "./app.js", "./config.js", "./firebase-glue.js", "./manifest.webmanifest", "./logo-240.png", "./soundboard-art.jpg", "./favicon.png", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
   e.waitUntil(caches.open(VERSION).then(c => Promise.all(CORE.map(u => c.add(u).catch(() => {})))).then(() => self.skipWaiting()));
